@@ -1,0 +1,282 @@
+export default function Controls({
+  params,
+  setParams,
+  onUpload,
+  onGenerate,
+  onDownload,
+  hasImage,
+  hasGeometry,
+  hasStl,
+  busy,
+  error,
+}) {
+  const update = (patch) => setParams({ ...params, ...patch });
+  const isRound = params.shape === 'round';
+
+  const num = (key, props = {}) => (
+    <input
+      type="number"
+      value={params[key]}
+      step={props.step ?? 0.5}
+      min={props.min ?? 0}
+      max={props.max}
+      onChange={(e) => update({ [key]: Number(e.target.value) })}
+    />
+  );
+
+  // For round, "size" sets both width and depth together (uniform diameter).
+  const setSize = (mm) => update({ widthMm: mm, depthMm: mm });
+
+  return (
+    <aside className="controls">
+      <h2>Stamp Generator</h2>
+
+      <section>
+        <label className="upload">
+          <span>{hasImage ? 'Replace image' : 'Upload image'}</span>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/svg+xml,image/webp"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onUpload(f);
+            }}
+          />
+        </label>
+        <p className="hint">
+          Black = raised by default. Toggle <em>Invert</em> if your image is light-on-dark.
+        </p>
+      </section>
+
+      <section>
+        <h3>Shape</h3>
+        <div className="shape-toggle" role="radiogroup">
+          <label className={`shape-opt ${isRound ? 'active' : ''}`}>
+            <input
+              type="radio"
+              name="shape"
+              checked={isRound}
+              onChange={() => update({ shape: 'round' })}
+            />
+            Round
+          </label>
+          <label className={`shape-opt ${isRound ? '' : 'active'}`}>
+            <input
+              type="radio"
+              name="shape"
+              checked={!isRound}
+              onChange={() => update({ shape: 'rect' })}
+            />
+            Square
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <h3>Stamp size (mm)</h3>
+        {isRound ? (
+          <label>
+            Diameter
+            <input
+              type="number"
+              value={params.widthMm}
+              step={1}
+              min={5}
+              onChange={(e) => setSize(Number(e.target.value))}
+            />
+          </label>
+        ) : (
+          <div className="row">
+            <label>Width {num('widthMm', { step: 1, min: 5 })}</label>
+            <label>Depth {num('depthMm', { step: 1, min: 5 })}</label>
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h3>Relief & base</h3>
+        <div className="row">
+          <label>Relief depth (mm) {num('reliefDepthMm', { step: 0.1, min: 0.2 })}</label>
+          <label>Base thickness (mm) {num('baseThicknessMm', { step: 0.5, min: 0.5 })}</label>
+        </div>
+        <label className="check" style={{ marginTop: 10 }}>
+          <input
+            type="checkbox"
+            checked={params.invert}
+            onChange={(e) => update({ invert: e.target.checked })}
+          />
+          Invert (light = raised)
+        </label>
+      </section>
+
+      <section>
+        <h3>Lines</h3>
+        <label>
+          Image scale: {params.imageScalePct}% of stamp
+          <input
+            type="range"
+            min={50}
+            max={100}
+            step={1}
+            value={params.imageScalePct}
+            onChange={(e) => update({ imageScalePct: Number(e.target.value) })}
+          />
+        </label>
+        <label style={{ marginTop: 10 }}>
+          Line sensitivity: {params.threshold.toFixed(2)}
+          <input
+            type="range"
+            min={0.1}
+            max={0.7}
+            step={0.01}
+            value={params.threshold}
+            onChange={(e) => update({ threshold: Number(e.target.value) })}
+          />
+        </label>
+        <label style={{ marginTop: 10 }}>
+          Contrast boost: {params.contrast.toFixed(1)}×
+          <input
+            type="range"
+            min={1}
+            max={3}
+            step={0.1}
+            value={params.contrast}
+            onChange={(e) => update({ contrast: Number(e.target.value) })}
+          />
+        </label>
+        <label style={{ marginTop: 10 }}>
+          Wall smoothing: {params.smoothIterations}
+          <input
+            type="range"
+            min={0}
+            max={3}
+            step={1}
+            value={params.smoothIterations}
+            onChange={(e) => update({ smoothIterations: Number(e.target.value) })}
+          />
+        </label>
+        <p className="hint">
+          Lower sensitivity / higher contrast = thicker lines. Wall smoothing
+          rounds the staircase pixel edges.
+        </p>
+      </section>
+
+      <section>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={params.rollingEnabled}
+            onChange={(e) => update({ rollingEnabled: e.target.checked })}
+          />
+          Rolling stamp (curved face)
+        </label>
+        <div className={params.rollingEnabled ? '' : 'disabled'} style={{ marginTop: 10 }}>
+          <label>
+            Rolling radius (mm)
+            <input
+              type="number"
+              value={params.rollingRadiusMm}
+              step={5}
+              min={params.widthMm / 2}
+              disabled={!params.rollingEnabled}
+              onChange={(e) => update({ rollingRadiusMm: Number(e.target.value) })}
+            />
+          </label>
+          <p className="hint">
+            Replaces the flat top with a cylindrical curve so you can roll the
+            stamp onto clay. Larger radius = gentler curve. Must be at least
+            half the stamp width ({(params.widthMm / 2).toFixed(1)} mm). Round
+            shape is overridden — the base becomes a rectangular rocker.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={params.handleEnabled}
+            onChange={(e) => update({ handleEnabled: e.target.checked })}
+          />
+          Handle
+        </label>
+        <div className={params.handleEnabled ? '' : 'disabled'}>
+          <div className="row" style={{ marginTop: 10 }}>
+            <label>
+              Radius (mm)
+              <input
+                type="number"
+                value={params.handleRadiusMm}
+                step={0.5}
+                min={1}
+                disabled={!params.handleEnabled}
+                onChange={(e) => update({ handleRadiusMm: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              Height (mm)
+              <input
+                type="number"
+                value={params.handleHeightMm}
+                step={1}
+                min={1}
+                disabled={!params.handleEnabled}
+                onChange={(e) => update({ handleHeightMm: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <label style={{ marginTop: 10 }}>
+            Transition angle: {params.handleTransitionAngleDeg}&deg; from vertical
+            <input
+              type="range"
+              min={0}
+              max={60}
+              step={1}
+              value={params.handleTransitionAngleDeg}
+              disabled={!params.handleEnabled}
+              onChange={(e) =>
+                update({ handleTransitionAngleDeg: Number(e.target.value) })
+              }
+            />
+          </label>
+          <label style={{ marginTop: 10 }}>
+            Grip height (mm)
+            <input
+              type="number"
+              value={params.handleGripHeightMm}
+              step={1}
+              min={0}
+              disabled={!params.handleEnabled}
+              onChange={(e) => update({ handleGripHeightMm: Number(e.target.value) })}
+            />
+          </label>
+          <p className="hint">
+            0° transition = straight cylinder. Grip height adds a same-radius
+            cylinder below the cone (set to 0 to disable).
+          </p>
+        </div>
+      </section>
+
+      {error && <p className="error">{error}</p>}
+
+      <div className="actions">
+        <button
+          type="button"
+          className="secondary"
+          onClick={onGenerate}
+          disabled={!hasGeometry || busy}
+        >
+          {busy ? 'Working…' : hasStl ? 'Regenerate STL' : 'Generate STL'}
+        </button>
+        <button
+          type="button"
+          className="primary"
+          onClick={onDownload}
+          disabled={!hasStl || busy}
+        >
+          Download STL
+        </button>
+      </div>
+    </aside>
+  );
+}

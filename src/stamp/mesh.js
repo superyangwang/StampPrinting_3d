@@ -42,7 +42,7 @@ export function buildStampGeometry(masks, opts) {
 
   geoms.push(buildBaseGeometry(opts, effW));
 
-  if (opts.handleEnabled && opts.handleRadiusMm > 0 && opts.handleHeightMm > 0) {
+  if (opts.handleEnabled && opts.handleHeightMm > 0) {
     geoms.push(...buildHandleGeometry(opts));
   }
 
@@ -289,73 +289,103 @@ function applyRollingCurveToPattern(geometry, opts, effW) {
 }
 
 // Handle, built bottom-up of two pieces stacked along -Z:
-//   1. Conical transition (height = handleHeightMm) from baseRadius (touching
-//      the base) down to handleRadiusMm (cone's narrow end).
-//   2. Optional grip (height = handleGripHeightMm, radius = handleGripRadiusMm)
-//      below the cone. Skipped if grip height is 0.
+//   1. Cone/frustum (height = handleHeightMm). Wide end matches the stamp
+//      footprint; narrow end is auto-derived by tapering each side inward
+//      at a fixed 45° — i.e., the narrow end is `handleHeightMm` smaller
+//      per side. Round stamps get a circular frustum; rectangle stamps get
+//      a rectangular pyramidal frustum (W × D at the top, (W−2h) × (D−2h)
+//      at the bottom).
+//   2. Optional cylindrical grip below the cone (always circular,
+//      radius = handleGripRadiusMm). Skipped if grip height is 0.
 //
-// Cross-section follows the stamp shape:
-//   - shape === 'round': circular (128 radial segments)
-//   - shape === 'rect':  square (4-segment cylinder rotated 45° so sides are
-//                        axis-aligned; "radius" maps to half the side length,
-//                        so internal radii get scaled by √2 to compensate for
-//                        Three.js measuring radius corner-to-center)
+// If `handleHeightMm` is so large that the cone would invert, the narrow
+// end is clamped to a small positive value — the user-controllable cone
+// height should stay below half the shortest stamp side.
 function buildHandleGeometry(opts) {
   const {
     shape,
-    handleRadiusMm,
+    widthMm,
+    depthMm,
     handleHeightMm,
-    handleTransitionAngleDeg,
     handleGripHeightMm = 0,
-    handleGripRadiusMm = handleRadiusMm,
+    handleGripRadiusMm,
   } = opts;
-  const tan = Math.tan(((handleTransitionAngleDeg ?? 0) * Math.PI) / 180);
-  const baseRadius = handleRadiusMm + handleHeightMm * Math.max(0, tan);
   const overlap = 0.2; // bury joints so slicers union cleanly
-
-  const isSquare = shape === 'rect';
-  const segments = isSquare ? 4 : 128;
-  // For a 4-segment cylinder, "radius" is corner-to-center. Rotating by 45°
-  // makes sides axis-aligned, but the apparent half-side length is R/√2.
-  // Scaling radius by √2 keeps the user-facing radius = half side length.
-  const rs = isSquare ? Math.SQRT2 : 1;
-
-  const orient = (geom) => {
-    if (isSquare) geom.rotateY(Math.PI / 4); // align flats to X/Y
-    geom.rotateX(-Math.PI / 2);              // axis becomes -Z
-  };
+  const minNarrow = 0.5; // mm; floor so the cone never inverts
 
   const pieces = [];
 
-  // Cone (square pyramidal frustum if rect): wide end at z = +overlap/2,
-  // narrow end at z = -handleHeightMm - overlap/2.
   const coneH = handleHeightMm + overlap;
-  const cone = new THREE.CylinderGeometry(
-    handleRadiusMm * rs,
-    baseRadius * rs,
-    coneH,
-    segments,
-    1
-  );
-  orient(cone);
-  cone.translate(0, 0, overlap / 2 - coneH / 2);
-  pieces.push(cone);
+  // Top of the cone sits +overlap/2 above z=0 so it tucks into the stamp
+  // base; bottom of the cone is at z = -handleHeightMm - overlap/2.
+  const coneTopZ = overlap / 2;
 
-  // Grip: top overlaps the cone's narrow end. Independent radius so it can
-  // form a ledge below the cone for a better hold.
-  if (handleGripHeightMm > 0) {
+  if (shape === 'rect') {
+    // Rectangular pyramidal frustum. Each side recedes by handleHeightMm
+    // at 45° from vertical, so the narrow rectangle is shrunk by handleHeightMm
+    // on every edge.
+    const wN = Math.max(minNarrow, widthMm - 2 * handleHeightMm);
+    const dN = Math.max(minNarrow, depthMm - 2 * handleHeightMm);
+    pieces.push(buildRectFrustum(widthMm, depthMm, wN, dN, coneH, coneTopZ));
+  } else {
+    // Circular frustum.
+    const rWide = widthMm / 2;
+    const rNarrow = Math.max(minNarrow, rWide - handleHeightMm);
+    const cone = new THREE.CylinderGeometry(rNarrow, rWide, coneH, 128, 1);
+    cone.rotateX(-Math.PI / 2);
+    cone.translate(0, 0, coneTopZ - coneH / 2);
+    pieces.push(cone);
+  }
+
+  // Grip is always a circular cylinder, hung from the cone bottom.
+  if (handleGripHeightMm > 0 && handleGripRadiusMm > 0) {
     const gripH = handleGripHeightMm + overlap;
     const grip = new THREE.CylinderGeometry(
-      handleGripRadiusMm * rs,
-      handleGripRadiusMm * rs,
+      handleGripRadiusMm,
+      handleGripRadiusMm,
       gripH,
-      segments,
+      128,
       1
     );
-    orient(grip);
+    grip.rotateX(-Math.PI / 2);
     grip.translate(0, 0, -handleHeightMm - handleGripHeightMm / 2);
     pieces.push(grip);
   }
 
   return pieces;
+}
+
+// Rectangular pyramidal frustum: wide rectangle (wWide × dWide) at z=zTop,
+// narrow rectangle (wNarrow × dNarrow) at z=zTop-height. Position-only,
+// non-indexed — slots straight into the mergeGeometries pipeline.
+function buildRectFrustum(wWide, dWide, wNarrow, dNarrow, height, zTop) {
+  const hWw = wWide / 2, hDw = dWide / 2;
+  const hWn = wNarrow / 2, hDn = dNarrow / 2;
+  const zB = zTop - height;
+
+  const p = [];
+  const tri = (...args) => p.push(...args);
+
+  // Top cap (wide, +Z normal). CCW when viewed from +Z.
+  tri(-hWw, -hDw, zTop,  hWw, -hDw, zTop,  hWw, hDw, zTop);
+  tri(-hWw, -hDw, zTop,  hWw, hDw, zTop,  -hWw, hDw, zTop);
+  // Bottom cap (narrow, -Z normal). CCW when viewed from -Z.
+  tri(-hWn, -hDn, zB,  -hWn, hDn, zB,  hWn, hDn, zB);
+  tri(-hWn, -hDn, zB,  hWn, hDn, zB,  hWn, -hDn, zB);
+  // Front (-Y). CCW when viewed from -Y: TL→BL→BR→TR.
+  tri(-hWw, -hDw, zTop,  -hWn, -hDn, zB,  hWn, -hDn, zB);
+  tri(-hWw, -hDw, zTop,  hWn, -hDn, zB,  hWw, -hDw, zTop);
+  // Back (+Y).
+  tri(hWw, hDw, zTop,  hWn, hDn, zB,  -hWn, hDn, zB);
+  tri(hWw, hDw, zTop,  -hWn, hDn, zB,  -hWw, hDw, zTop);
+  // Left (-X).
+  tri(-hWw, hDw, zTop,  -hWn, hDn, zB,  -hWn, -hDn, zB);
+  tri(-hWw, hDw, zTop,  -hWn, -hDn, zB,  -hWw, -hDw, zTop);
+  // Right (+X).
+  tri(hWw, -hDw, zTop,  hWn, -hDn, zB,  hWn, hDn, zB);
+  tri(hWw, -hDw, zTop,  hWn, hDn, zB,  hWw, hDw, zTop);
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(p), 3));
+  return geom;
 }

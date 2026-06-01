@@ -244,42 +244,15 @@ export default function Controls({
           Handle
         </label>
         <div className={params.handleEnabled ? '' : 'disabled'}>
-          <div className="row" style={{ marginTop: 10 }}>
-            <label>
-              Radius (mm)
-              <input
-                type="number"
-                value={params.handleRadiusMm}
-                step={0.5}
-                min={1}
-                disabled={!params.handleEnabled}
-                onChange={(e) => update({ handleRadiusMm: Number(e.target.value) })}
-              />
-            </label>
-            <label>
-              Height (mm)
-              <input
-                type="number"
-                value={params.handleHeightMm}
-                step={1}
-                min={1}
-                disabled={!params.handleEnabled}
-                onChange={(e) => update({ handleHeightMm: Number(e.target.value) })}
-              />
-            </label>
-          </div>
           <label style={{ marginTop: 10 }}>
-            Transition angle: {params.handleTransitionAngleDeg}&deg; from vertical
+            Cone height (mm)
             <input
-              type="range"
-              min={0}
-              max={60}
+              type="number"
+              value={params.handleHeightMm}
               step={1}
-              value={params.handleTransitionAngleDeg}
+              min={1}
               disabled={!params.handleEnabled}
-              onChange={(e) =>
-                update({ handleTransitionAngleDeg: Number(e.target.value) })
-              }
+              onChange={(e) => update({ handleHeightMm: Number(e.target.value) })}
             />
           </label>
           <div className="row" style={{ marginTop: 10 }}>
@@ -307,10 +280,10 @@ export default function Controls({
             </label>
           </div>
           <p className="hint">
-            0° transition = straight cylinder. Grip height adds a cylinder
-            below the cone (set to 0 to disable). Grip radius can be larger
-            than the cone&apos;s narrow end to create a holding ledge.
-            Rectangle stamps get a square pyramid + square grip.
+            The cone starts at the full stamp footprint and tapers inward at
+            a fixed 45&deg; — so each side recedes by the cone height. Keep
+            cone height below half the shortest stamp side. The grip is
+            always a round cylinder; set its height to 0 to omit it.
           </p>
         </div>
       </section>

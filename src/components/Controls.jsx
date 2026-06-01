@@ -67,7 +67,7 @@ export default function Controls({
               checked={!isRound}
               onChange={() => update({ shape: 'rect' })}
             />
-            Square
+            Rectangle
           </label>
         </div>
       </section>

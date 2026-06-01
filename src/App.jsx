@@ -7,9 +7,11 @@ import { geometryToBinarySTL } from './stamp/stl.js';
 import './App.css';
 
 const DEFAULT_STAMP_SIZE_MM = 40;
-// Handle defaults are derived from the default stamp size:
-//   radius = 25% of diameter, height = same as radius, transition = 45°.
-const DEFAULT_HANDLE_RADIUS_MM = DEFAULT_STAMP_SIZE_MM * 0.25;
+// Handle defaults: cone height = 25% of stamp diameter so the auto-derived
+// narrow end stays well above 0. Grip radius = same — so the grip starts
+// roughly flush with where the cone's narrow end lands.
+const DEFAULT_HANDLE_HEIGHT_MM = DEFAULT_STAMP_SIZE_MM * 0.25;
+const DEFAULT_GRIP_RADIUS_MM = DEFAULT_STAMP_SIZE_MM * 0.25;
 
 const DEFAULTS = {
   shape: 'round',          // 'round' | 'rect'
@@ -31,13 +33,9 @@ const DEFAULTS = {
   smoothIterations: 1,     // 0..3 Chaikin passes on traced contours
   imageScalePct: 90,       // 50..100; shrinks the pattern inside the stamp footprint
   handleEnabled: true,
-  handleRadiusMm: DEFAULT_HANDLE_RADIUS_MM,
-  handleHeightMm: DEFAULT_HANDLE_RADIUS_MM,
-  handleTransitionAngleDeg: 45,
+  handleHeightMm: DEFAULT_HANDLE_HEIGHT_MM,
   handleGripHeightMm: 10,
-  handleGripRadiusMm: DEFAULT_HANDLE_RADIUS_MM, // grip cylinder radius; can
-                                                // differ from handleRadiusMm
-                                                // to create a holding ledge
+  handleGripRadiusMm: DEFAULT_GRIP_RADIUS_MM,
 };
 
 async function fileToImageData(file) {

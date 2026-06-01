@@ -66,6 +66,24 @@ export default function App() {
   const [stlBuffer, setStlBuffer] = useState(null);
   const [error, setError] = useState(null);
 
+  // When the user switches to Rectangle with an image already loaded, refit
+  // the footprint to the image's aspect ratio. Same logic as upload-time.
+  const prevShapeRef = useRef(params.shape);
+  useEffect(() => {
+    if (
+      params.shape === 'rect' &&
+      prevShapeRef.current !== 'rect' &&
+      imageData
+    ) {
+      const aspect = imageData.width / imageData.height;
+      const maxDim = Math.max(params.widthMm, params.depthMm);
+      const w = aspect >= 1 ? maxDim : Math.max(5, +(maxDim * aspect).toFixed(1));
+      const d = aspect >= 1 ? Math.max(5, +(maxDim / aspect).toFixed(1)) : maxDim;
+      setParams((p) => ({ ...p, widthMm: w, depthMm: d }));
+    }
+    prevShapeRef.current = params.shape;
+  }, [params.shape, imageData]);
+
   // Debounce param changes so dragging a slider doesn't rebuild every pixel.
   const [debouncedParams, setDebouncedParams] = useState(params);
   const debounceRef = useRef(0);
@@ -109,6 +127,17 @@ export default function App() {
       const data = await fileToImageData(file);
       setImageData(data);
       setFileName(file.name.replace(/\.[^.]+$/, ''));
+      // Auto-fit the rectangular stamp to the image's aspect ratio so the
+      // pattern isn't squashed into a square footprint. The longer side
+      // keeps whatever max(W, D) the user already had; the shorter side
+      // is derived from the image aspect (min 5 mm).
+      if (params.shape === 'rect') {
+        const aspect = data.width / data.height;
+        const maxDim = Math.max(params.widthMm, params.depthMm);
+        const w = aspect >= 1 ? maxDim : Math.max(5, +(maxDim * aspect).toFixed(1));
+        const d = aspect >= 1 ? Math.max(5, +(maxDim / aspect).toFixed(1)) : maxDim;
+        setParams({ ...params, widthMm: w, depthMm: d });
+      }
     } catch (err) {
       console.error(err);
       alert('Could not decode that image.');

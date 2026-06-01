@@ -99,6 +99,22 @@ export default function Controls({
           <label>Relief depth (mm) {num('reliefDepthMm', { step: 0.1, min: 0.2 })}</label>
           <label>Base thickness (mm) {num('baseThicknessMm', { step: 0.5, min: 0.5 })}</label>
         </div>
+        <label style={{ marginTop: 10 }}>
+          Draft angle: {params.draftAngleDeg.toFixed(1)}&deg;
+          <input
+            type="range"
+            min={0}
+            max={15}
+            step={0.5}
+            value={params.draftAngleDeg}
+            onChange={(e) => update({ draftAngleDeg: Number(e.target.value) })}
+          />
+        </label>
+        <p className="hint">
+          Tapers walls inward toward the top so the stamp releases cleanly
+          from clay. 0&deg; = vertical walls; 5&ndash;10&deg; works well for
+          most patterns. Very thin lines may pinch if the angle is too steep.
+        </p>
         <label className="check" style={{ marginTop: 10 }}>
           <input
             type="checkbox"

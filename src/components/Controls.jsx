@@ -282,8 +282,11 @@ export default function Controls({
           <p className="hint">
             The cone starts at the full stamp footprint and tapers inward at
             a fixed 45&deg; — so each side recedes by the cone height. Keep
-            cone height below half the shortest stamp side. The grip is
-            always a round cylinder; set its height to 0 to omit it.
+            cone height below half the shortest stamp side. The grip mirrors
+            the stamp shape (round &rarr; cylinder, rectangle &rarr; matching
+            rectangular prism). For rectangle stamps, grip radius = half the
+            longer side; the shorter side follows the stamp&apos;s aspect ratio.
+            Set grip height to 0 to omit the grip.
           </p>
         </div>
       </section>

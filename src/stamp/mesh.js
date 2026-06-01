@@ -337,19 +337,30 @@ function buildHandleGeometry(opts) {
     pieces.push(cone);
   }
 
-  // Grip is always a circular cylinder, hung from the cone bottom.
+  // Grip mirrors the stamp shape: round cylinder for round stamps,
+  // rectangular prism (same aspect ratio as stamp) for rect stamps.
   if (handleGripHeightMm > 0 && handleGripRadiusMm > 0) {
     const gripH = handleGripHeightMm + overlap;
-    const grip = new THREE.CylinderGeometry(
-      handleGripRadiusMm,
-      handleGripRadiusMm,
-      gripH,
-      128,
-      1
-    );
-    grip.rotateX(-Math.PI / 2);
-    grip.translate(0, 0, -handleHeightMm - handleGripHeightMm / 2);
-    pieces.push(grip);
+    const gripTopZ = -handleHeightMm + overlap / 2;
+
+    if (shape === 'rect') {
+      // gripRadius = half the longer side; shorter side follows stamp aspect.
+      const longer = Math.max(widthMm, depthMm);
+      const gW = 2 * handleGripRadiusMm * (widthMm / longer);
+      const gD = 2 * handleGripRadiusMm * (depthMm / longer);
+      pieces.push(buildRectFrustum(gW, gD, gW, gD, gripH, gripTopZ));
+    } else {
+      const grip = new THREE.CylinderGeometry(
+        handleGripRadiusMm,
+        handleGripRadiusMm,
+        gripH,
+        128,
+        1
+      );
+      grip.rotateX(-Math.PI / 2);
+      grip.translate(0, 0, -handleHeightMm - handleGripHeightMm / 2);
+      pieces.push(grip);
+    }
   }
 
   return pieces;

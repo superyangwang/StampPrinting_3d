@@ -290,17 +290,17 @@ function applyRollingCurveToPattern(geometry, opts, effW) {
 
 // Handle, built bottom-up of two pieces stacked along -Z:
 //   1. Cone/frustum (height = handleHeightMm). Wide end matches the stamp
-//      footprint; narrow end is auto-derived by tapering each side inward
-//      at a fixed 45° — i.e., the narrow end is `handleHeightMm` smaller
-//      per side. Round stamps get a circular frustum; rectangle stamps get
-//      a rectangular pyramidal frustum (W × D at the top, (W−2h) × (D−2h)
-//      at the bottom).
-//   2. Optional cylindrical grip below the cone (always circular,
-//      radius = handleGripRadiusMm). Skipped if grip height is 0.
+//      footprint; narrow end matches the grip's footprint exactly, so the
+//      cone seamlessly transitions into the grip with no visible step.
+//      Round stamps get a circular frustum; rectangle stamps get a
+//      rectangular pyramidal frustum that preserves the stamp's aspect ratio.
+//   2. Optional grip prism below the cone, same footprint as the cone's
+//      narrow end. Skipped if grip height is 0 (cone still tapers to the
+//      grip-size flat — looks like a truncated pyramid).
 //
-// If `handleHeightMm` is so large that the cone would invert, the narrow
-// end is clamped to a small positive value — the user-controllable cone
-// height should stay below half the shortest stamp side.
+// Slope is auto-derived from the cone height and the wide↔narrow delta;
+// it's no longer fixed at 45°. handleGripRadiusMm is clamped to [0.5 mm,
+// half the stamp's longer side] so the cone never inverts.
 function buildHandleGeometry(opts) {
   const {
     shape,
@@ -320,39 +320,50 @@ function buildHandleGeometry(opts) {
   // base; bottom of the cone is at z = -handleHeightMm - overlap/2.
   const coneTopZ = overlap / 2;
 
+  // Pre-compute the narrow-end footprint that BOTH the cone bottom and the
+  // grip will share — this is what makes the join seamless.
+  let narrow;
   if (shape === 'rect') {
-    // Rectangular pyramidal frustum. Each side recedes by handleHeightMm
-    // at 45° from vertical, so the narrow rectangle is shrunk by handleHeightMm
-    // on every edge.
-    const wN = Math.max(minNarrow, widthMm - 2 * handleHeightMm);
-    const dN = Math.max(minNarrow, depthMm - 2 * handleHeightMm);
-    pieces.push(buildRectFrustum(widthMm, depthMm, wN, dN, coneH, coneTopZ));
+    const longer = Math.max(widthMm, depthMm);
+    const gW = Math.max(
+      minNarrow,
+      Math.min(widthMm, 2 * handleGripRadiusMm * (widthMm / longer))
+    );
+    const gD = Math.max(
+      minNarrow,
+      Math.min(depthMm, 2 * handleGripRadiusMm * (depthMm / longer))
+    );
+    narrow = { gW, gD };
   } else {
-    // Circular frustum.
     const rWide = widthMm / 2;
-    const rNarrow = Math.max(minNarrow, rWide - handleHeightMm);
-    const cone = new THREE.CylinderGeometry(rNarrow, rWide, coneH, 128, 1);
+    const rNarrow = Math.max(minNarrow, Math.min(rWide, handleGripRadiusMm));
+    narrow = { rNarrow, rWide };
+  }
+
+  // Cone (truncated frustum).
+  if (shape === 'rect') {
+    pieces.push(
+      buildRectFrustum(widthMm, depthMm, narrow.gW, narrow.gD, coneH, coneTopZ)
+    );
+  } else {
+    const cone = new THREE.CylinderGeometry(narrow.rNarrow, narrow.rWide, coneH, 128, 1);
     cone.rotateX(-Math.PI / 2);
     cone.translate(0, 0, coneTopZ - coneH / 2);
     pieces.push(cone);
   }
 
-  // Grip mirrors the stamp shape: round cylinder for round stamps,
-  // rectangular prism (same aspect ratio as stamp) for rect stamps.
+  // Grip — same footprint as the cone's narrow end, so they line up exactly.
   if (handleGripHeightMm > 0 && handleGripRadiusMm > 0) {
     const gripH = handleGripHeightMm + overlap;
     const gripTopZ = -handleHeightMm + overlap / 2;
-
     if (shape === 'rect') {
-      // gripRadius = half the longer side; shorter side follows stamp aspect.
-      const longer = Math.max(widthMm, depthMm);
-      const gW = 2 * handleGripRadiusMm * (widthMm / longer);
-      const gD = 2 * handleGripRadiusMm * (depthMm / longer);
-      pieces.push(buildRectFrustum(gW, gD, gW, gD, gripH, gripTopZ));
+      pieces.push(
+        buildRectFrustum(narrow.gW, narrow.gD, narrow.gW, narrow.gD, gripH, gripTopZ)
+      );
     } else {
       const grip = new THREE.CylinderGeometry(
-        handleGripRadiusMm,
-        handleGripRadiusMm,
+        narrow.rNarrow,
+        narrow.rNarrow,
         gripH,
         128,
         1

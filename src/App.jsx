@@ -35,6 +35,9 @@ const DEFAULTS = {
   handleHeightMm: DEFAULT_HANDLE_RADIUS_MM,
   handleTransitionAngleDeg: 45,
   handleGripHeightMm: 10,
+  handleGripRadiusMm: DEFAULT_HANDLE_RADIUS_MM, // grip cylinder radius; can
+                                                // differ from handleRadiusMm
+                                                // to create a holding ledge
 };
 
 async function fileToImageData(file) {

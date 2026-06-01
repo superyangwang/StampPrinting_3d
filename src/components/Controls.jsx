@@ -282,20 +282,35 @@ export default function Controls({
               }
             />
           </label>
-          <label style={{ marginTop: 10 }}>
-            Grip height (mm)
-            <input
-              type="number"
-              value={params.handleGripHeightMm}
-              step={1}
-              min={0}
-              disabled={!params.handleEnabled}
-              onChange={(e) => update({ handleGripHeightMm: Number(e.target.value) })}
-            />
-          </label>
+          <div className="row" style={{ marginTop: 10 }}>
+            <label>
+              Grip height (mm)
+              <input
+                type="number"
+                value={params.handleGripHeightMm}
+                step={1}
+                min={0}
+                disabled={!params.handleEnabled}
+                onChange={(e) => update({ handleGripHeightMm: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              Grip radius (mm)
+              <input
+                type="number"
+                value={params.handleGripRadiusMm}
+                step={0.5}
+                min={1}
+                disabled={!params.handleEnabled || params.handleGripHeightMm <= 0}
+                onChange={(e) => update({ handleGripRadiusMm: Number(e.target.value) })}
+              />
+            </label>
+          </div>
           <p className="hint">
-            0° transition = straight cylinder. Grip height adds a same-radius
-            cylinder below the cone (set to 0 to disable).
+            0° transition = straight cylinder. Grip height adds a cylinder
+            below the cone (set to 0 to disable). Grip radius can be larger
+            than the cone&apos;s narrow end to create a holding ledge.
+            Rectangle stamps get a square pyramid + square grip.
           </p>
         </div>
       </section>

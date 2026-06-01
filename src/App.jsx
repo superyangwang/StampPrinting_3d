@@ -17,6 +17,9 @@ const DEFAULTS = {
   depthMm: DEFAULT_STAMP_SIZE_MM,
   reliefDepthMm: 2,
   baseThicknessMm: 3,
+  draftAngleDeg: 5,        // 0..15; tapers walls inward toward the top so the
+                           // stamp releases cleanly from clay
+
   rollingEnabled: false,
   rollingRadiusMm: 50,     // cylinder radius for the curved top; 0 = flat
   rollingFlatCompensate: false, // shrink chord so flat-rolled imprint = design width

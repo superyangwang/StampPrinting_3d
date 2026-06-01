@@ -66,6 +66,7 @@ function buildPatternGeometry(masks, opts) {
     depthMm,
     baseThicknessMm,
     reliefDepthMm,
+    draftAngleDeg = 0,
     smoothIterations,
     imageScalePct = 100,
   } = opts;
@@ -80,8 +81,62 @@ function buildPatternGeometry(masks, opts) {
     steps: 1,
     curveSegments: 12,
   });
+  applyDraftAngle(geo, draftAngleDeg, reliefDepthMm);
   geo.translate(0, 0, baseThicknessMm);
   return geo;
+}
+
+// Inset the top of each extruded wall toward the polygon interior so the
+// stamp releases cleanly from clay. Walls become trapezoids: wider at the
+// base (z=0), narrower at the top (z=reliefDepth) by `reliefDepth*tan(deg)`.
+//
+// We group every top-z vertex by its XY position and use the side-wall
+// vertices' outward 2D normals (which ExtrudeGeometry has just computed) as
+// the local "outward" direction. Top-cap duplicates at the same XY get
+// shifted by the same vector so the mesh stays watertight. Corner vertices
+// naturally get the average of their two adjacent edge normals — the right
+// direction for a corner inset.
+function applyDraftAngle(geometry, draftAngleDeg, reliefDepth) {
+  if (!draftAngleDeg || draftAngleDeg <= 0) return;
+  const offset = reliefDepth * Math.tan((draftAngleDeg * Math.PI) / 180);
+  if (offset <= 0) return;
+
+  const pos = geometry.getAttribute('position');
+  const norm = geometry.getAttribute('normal');
+  if (!norm) return;
+
+  const eps = 1e-3;
+  const groups = new Map();
+  for (let i = 0; i < pos.count; i++) {
+    if (Math.abs(pos.getZ(i) - reliefDepth) > 1e-4) continue;
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const key = `${Math.round(x / eps)}_${Math.round(y / eps)}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { indices: [], nx: 0, ny: 0 };
+      groups.set(key, g);
+    }
+    g.indices.push(i);
+    // Side-wall normals lie in the XY plane (|nz| ~ 0); top-cap normals are
+    // (0,0,1). Only the side-wall ones tell us which way is "outward".
+    if (Math.abs(norm.getZ(i)) < 0.5) {
+      g.nx += norm.getX(i);
+      g.ny += norm.getY(i);
+    }
+  }
+
+  for (const g of groups.values()) {
+    const len = Math.hypot(g.nx, g.ny);
+    if (len < 1e-6) continue;
+    const dx = (g.nx / len) * offset;
+    const dy = (g.ny / len) * offset;
+    for (const i of g.indices) {
+      pos.setX(i, pos.getX(i) - dx);
+      pos.setY(i, pos.getY(i) - dy);
+    }
+  }
+  pos.needsUpdate = true;
 }
 
 function maskToShapes(mask, W, H, widthMm, depthMm, smoothIterations = 0) {

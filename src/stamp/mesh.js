@@ -290,36 +290,69 @@ function applyRollingCurveToPattern(geometry, opts, effW) {
 
 // Handle, built bottom-up of two pieces stacked along -Z:
 //   1. Conical transition (height = handleHeightMm) from baseRadius (touching
-//      the base) down to handleRadiusMm (grip).
-//   2. Optional cylindrical grip (height = handleGripHeightMm, same radius)
+//      the base) down to handleRadiusMm (cone's narrow end).
+//   2. Optional grip (height = handleGripHeightMm, radius = handleGripRadiusMm)
 //      below the cone. Skipped if grip height is 0.
+//
+// Cross-section follows the stamp shape:
+//   - shape === 'round': circular (128 radial segments)
+//   - shape === 'rect':  square (4-segment cylinder rotated 45° so sides are
+//                        axis-aligned; "radius" maps to half the side length,
+//                        so internal radii get scaled by √2 to compensate for
+//                        Three.js measuring radius corner-to-center)
 function buildHandleGeometry(opts) {
   const {
+    shape,
     handleRadiusMm,
     handleHeightMm,
     handleTransitionAngleDeg,
     handleGripHeightMm = 0,
+    handleGripRadiusMm = handleRadiusMm,
   } = opts;
   const tan = Math.tan(((handleTransitionAngleDeg ?? 0) * Math.PI) / 180);
   const baseRadius = handleRadiusMm + handleHeightMm * Math.max(0, tan);
   const overlap = 0.2; // bury joints so slicers union cleanly
 
+  const isSquare = shape === 'rect';
+  const segments = isSquare ? 4 : 128;
+  // For a 4-segment cylinder, "radius" is corner-to-center. Rotating by 45°
+  // makes sides axis-aligned, but the apparent half-side length is R/√2.
+  // Scaling radius by √2 keeps the user-facing radius = half side length.
+  const rs = isSquare ? Math.SQRT2 : 1;
+
+  const orient = (geom) => {
+    if (isSquare) geom.rotateY(Math.PI / 4); // align flats to X/Y
+    geom.rotateX(-Math.PI / 2);              // axis becomes -Z
+  };
+
   const pieces = [];
 
-  // Cone: wide end at z = +overlap/2 (inside the base), narrow end at
-  // z = -handleHeightMm - overlap/2.
+  // Cone (square pyramidal frustum if rect): wide end at z = +overlap/2,
+  // narrow end at z = -handleHeightMm - overlap/2.
   const coneH = handleHeightMm + overlap;
-  const cone = new THREE.CylinderGeometry(handleRadiusMm, baseRadius, coneH, 128, 1);
-  cone.rotateX(-Math.PI / 2);
+  const cone = new THREE.CylinderGeometry(
+    handleRadiusMm * rs,
+    baseRadius * rs,
+    coneH,
+    segments,
+    1
+  );
+  orient(cone);
   cone.translate(0, 0, overlap / 2 - coneH / 2);
   pieces.push(cone);
 
-  // Grip cylinder: top overlaps the cone's narrow end, bottom sits at
-  // z = -handleHeightMm - handleGripHeightMm.
+  // Grip: top overlaps the cone's narrow end. Independent radius so it can
+  // form a ledge below the cone for a better hold.
   if (handleGripHeightMm > 0) {
     const gripH = handleGripHeightMm + overlap;
-    const grip = new THREE.CylinderGeometry(handleRadiusMm, handleRadiusMm, gripH, 128, 1);
-    grip.rotateX(-Math.PI / 2);
+    const grip = new THREE.CylinderGeometry(
+      handleGripRadiusMm * rs,
+      handleGripRadiusMm * rs,
+      gripH,
+      segments,
+      1
+    );
+    orient(grip);
     grip.translate(0, 0, -handleHeightMm - handleGripHeightMm / 2);
     pieces.push(grip);
   }

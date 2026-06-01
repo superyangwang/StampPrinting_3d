@@ -19,10 +19,12 @@ const DEFAULTS = {
   baseThicknessMm: 3,
   rollingEnabled: false,
   rollingRadiusMm: 50,     // cylinder radius for the curved top; 0 = flat
+  rollingFlatCompensate: false, // shrink chord so flat-rolled imprint = design width
 
   invert: false,
   threshold: 0.3,          // 0..1; lower = more pixels qualify as "black"
   contrast: 1.8,           // 1 = none; >1 pushes grays toward 0/1
+  lineThickenPx: 1.5,      // 0..4 mask-pixel dilation radius; fattens raised lines
   smoothIterations: 1,     // 0..3 Chaikin passes on traced contours
   imageScalePct: 90,       // 50..100; shrinks the pattern inside the stamp footprint
   handleEnabled: true,

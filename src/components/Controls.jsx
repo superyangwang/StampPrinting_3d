@@ -145,6 +145,17 @@ export default function Controls({
           />
         </label>
         <label style={{ marginTop: 10 }}>
+          Line thickness: +{params.lineThickenPx.toFixed(2)}px
+          <input
+            type="range"
+            min={0}
+            max={4}
+            step={0.25}
+            value={params.lineThickenPx}
+            onChange={(e) => update({ lineThickenPx: Number(e.target.value) })}
+          />
+        </label>
+        <label style={{ marginTop: 10 }}>
           Wall smoothing: {params.smoothIterations}
           <input
             type="range"
@@ -187,6 +198,22 @@ export default function Controls({
             stamp onto clay. Larger radius = gentler curve. Must be at least
             half the stamp width ({(params.widthMm / 2).toFixed(1)} mm). Round
             shape is overridden — the base becomes a rectangular rocker.
+          </p>
+          <label className="check" style={{ marginTop: 10 }}>
+            <input
+              type="checkbox"
+              checked={params.rollingFlatCompensate}
+              disabled={!params.rollingEnabled}
+              onChange={(e) => update({ rollingFlatCompensate: e.target.checked })}
+            />
+            Compensate stretch on flat surface
+          </label>
+          <p className="hint">
+            When rolled on a flat surface, the curved top sweeps a longer
+            arc than its chord, so the imprint comes out wider than your
+            design. Tick this to pre-shrink the pattern along X so a flat
+            roll matches the design width exactly. Leave off if you're
+            rolling onto a curved surface.
           </p>
         </div>
       </section>

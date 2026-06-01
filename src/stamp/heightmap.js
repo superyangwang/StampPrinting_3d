@@ -46,8 +46,11 @@ function downscale(imageData, maxSide) {
  * @param {number} opts.widthMm
  * @param {number} opts.depthMm
  * @param {boolean} opts.invert
- * @param {number} [opts.threshold=0.3]    - 0..1; lower = more pixels qualify as "black"
+ * @param {number} [opts.threshold=0.2]    - 0..1; lower = more pixels qualify as "black"
  * @param {number} [opts.contrast=1.8]     - 1 = no change; >1 = push grays toward 0/1
+ * @param {number} [opts.lineThickenPx=0]  - morphological dilation passes on the binary
+ *                                            mask. Each pass fattens every raised line by
+ *                                            one mask-pixel in all directions.
  * @param {number} [opts.imageScalePct=100] - shrinks the design inside the stamp;
  *                                            relaxes the round clip ellipse to match.
  * @param {number} [opts.maxResolution=384]
@@ -59,6 +62,7 @@ export function buildMasks(imageData, opts) {
     invert,
     threshold = 0.3,
     contrast = 1.8,
+    lineThickenPx = 0,
     imageScalePct = 100,
     maxResolution = 384,
   } = opts;
@@ -107,8 +111,75 @@ export function buildMasks(imageData, opts) {
     }
   }
 
-  const mask = new Uint8Array(W * H);
+  let mask = new Uint8Array(W * H);
   for (let i = 0; i < W * H; i++) mask[i] = gray[i] > threshold ? 1 : 0;
 
+  if (lineThickenPx > 0) {
+    mask = dilateMask(mask, W, H, lineThickenPx);
+    // Dilation can push pixels into the clip-ellipse / border zone we cleared
+    // earlier. Re-enforce both constraints so lines still can't punch through
+    // the disk wall or break contour closure.
+    if (shape === 'round') {
+      const s = imageScalePct / 100;
+      const clipR2 = 1 / (s * s);
+      for (let j = 0; j < H; j++) {
+        const ny = (j / (H - 1)) * 2 - 1;
+        for (let i = 0; i < W; i++) {
+          const nx = (i / (W - 1)) * 2 - 1;
+          if (nx * nx + ny * ny > clipR2) mask[j * W + i] = 0;
+        }
+      }
+    }
+    for (let x = 0; x < W; x++) {
+      mask[x] = 0;
+      mask[(H - 1) * W + x] = 0;
+    }
+    for (let y = 0; y < H; y++) {
+      mask[y * W] = 0;
+      mask[y * W + W - 1] = 0;
+    }
+  }
+
   return { W, H, mask };
+}
+
+// Fractional dilation via Chamfer 3-4 distance transform. Computes the
+// distance from every off-pixel to the nearest on-pixel, then re-thresholds
+// at `radius` pixels — so a radius of 1.5 fattens lines by ~1.5 mask-pixels,
+// not just integer steps. Chamfer 3-4 is ~96% accurate Euclidean and runs
+// in two raster passes.
+function dilateMask(mask, W, H, radius) {
+  const INF = 1e9;
+  const dist = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) dist[i] = mask[i] ? 0 : INF;
+
+  // Forward pass: top-left to bottom-right. Cardinal=3, diagonal=4.
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const idx = y * W + x;
+      let d = dist[idx];
+      if (x > 0)                d = Math.min(d, dist[idx - 1] + 3);
+      if (y > 0)                d = Math.min(d, dist[idx - W] + 3);
+      if (x > 0 && y > 0)       d = Math.min(d, dist[idx - W - 1] + 4);
+      if (x < W - 1 && y > 0)   d = Math.min(d, dist[idx - W + 1] + 4);
+      dist[idx] = d;
+    }
+  }
+  // Backward pass: bottom-right to top-left.
+  for (let y = H - 1; y >= 0; y--) {
+    for (let x = W - 1; x >= 0; x--) {
+      const idx = y * W + x;
+      let d = dist[idx];
+      if (x < W - 1)              d = Math.min(d, dist[idx + 1] + 3);
+      if (y < H - 1)              d = Math.min(d, dist[idx + W] + 3);
+      if (x < W - 1 && y < H - 1) d = Math.min(d, dist[idx + W + 1] + 4);
+      if (x > 0 && y < H - 1)     d = Math.min(d, dist[idx + W - 1] + 4);
+      dist[idx] = d;
+    }
+  }
+
+  const threshold = radius * 3; // convert pixel radius to chamfer units
+  const out = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) out[i] = dist[i] <= threshold ? 1 : 0;
+  return out;
 }

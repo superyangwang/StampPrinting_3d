@@ -14,18 +14,33 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { TessellateModifier } from 'three/examples/jsm/modifiers/TessellateModifier.js';
 import { traceShapes } from './tracer.js';
+
+// Edge length, in mm, used when subdividing the relief before bending it onto
+// the rocker curve. Smaller = smoother curve but more triangles. 0.5 mm is
+// well below typical 3D-printer layer heights so faceting won't be visible.
+const ROLLING_TESSELLATE_EDGE_MM = 0.5;
 
 export function buildStampGeometry(masks, opts) {
   const geoms = [];
+  const effW = effectiveWidthMm(opts);
 
   const pattern = buildPatternGeometry(masks, opts);
   if (pattern) {
-    applyRollingCurveToPattern(pattern, opts);
-    geoms.push(pattern);
+    let final = pattern;
+    // Rolling mode bends the relief onto a curve — long flat triangles would
+    // fly above or below the curve between their vertices, producing facets in
+    // the print. Subdivide first so every edge stays short enough to conform.
+    if (opts.rollingEnabled && opts.rollingRadiusMm >= opts.widthMm / 2) {
+      final = new TessellateModifier(ROLLING_TESSELLATE_EDGE_MM, 8).modify(pattern);
+      if (final !== pattern) pattern.dispose();
+    }
+    applyRollingCurveToPattern(final, opts, effW);
+    geoms.push(final);
   }
 
-  geoms.push(buildBaseGeometry(opts));
+  geoms.push(buildBaseGeometry(opts, effW));
 
   if (opts.handleEnabled && opts.handleRadiusMm > 0 && opts.handleHeightMm > 0) {
     geoms.push(...buildHandleGeometry(opts));
@@ -63,7 +78,7 @@ function buildPatternGeometry(masks, opts) {
     depth: reliefDepthMm,
     bevelEnabled: false,
     steps: 1,
-    curveSegments: 4,
+    curveSegments: 12,
   });
   geo.translate(0, 0, baseThicknessMm);
   return geo;
@@ -99,16 +114,27 @@ function loopToPath(loop, W, H, widthMm, depthMm, path) {
   path.closePath();
 }
 
-function buildBaseGeometry(opts) {
+// Effective chord-width of the curved top. When flat-roll compensation is on,
+// we shrink the chord so the *arc length* of the curve equals the user's
+// design widthMm — meaning a roll across flat clay imprints at exactly
+// widthMm wide, not arc-stretched. Otherwise returns widthMm unchanged.
+function effectiveWidthMm(opts) {
+  const { rollingEnabled, rollingFlatCompensate, rollingRadiusMm, widthMm } = opts;
+  if (!rollingEnabled || !rollingFlatCompensate) return widthMm;
+  if (!rollingRadiusMm || rollingRadiusMm < widthMm / 2) return widthMm;
+  return 2 * rollingRadiusMm * Math.sin(widthMm / (2 * rollingRadiusMm));
+}
+
+function buildBaseGeometry(opts, effW) {
   const { shape, widthMm, depthMm, baseThicknessMm, rollingRadiusMm = 0 } = opts;
 
   // Rolling mode overrides the shape: a rocker (flat bottom, cylindrically
   // curved top) is the only shape that rolls coherently.
   if (opts.rollingEnabled && rollingRadiusMm >= widthMm / 2) {
-    return buildRockerBaseGeometry(opts);
+    return buildRockerBaseGeometry(opts, effW);
   }
   if (shape === 'round') {
-    const cyl = new THREE.CylinderGeometry(0.5, 0.5, baseThicknessMm, 96, 1);
+    const cyl = new THREE.CylinderGeometry(0.5, 0.5, baseThicknessMm, 192, 1);
     cyl.rotateX(Math.PI / 2);
     cyl.scale(widthMm, depthMm, 1);
     cyl.translate(0, 0, baseThicknessMm / 2);
@@ -122,18 +148,18 @@ function buildBaseGeometry(opts) {
 // Rectangular base with a flat bottom and a cylindrically curved top. Curve
 // axis is along Y; rolling direction is X. At the edges (x=±halfW) the top
 // meets z = baseThicknessMm; at the center (x=0) it bulges up by `bulgeMax`.
-function buildRockerBaseGeometry(opts) {
-  const { widthMm, depthMm, baseThicknessMm, rollingRadiusMm } = opts;
+function buildRockerBaseGeometry(opts, effW) {
+  const { depthMm, baseThicknessMm, rollingRadiusMm } = opts;
   const R = rollingRadiusMm;
-  const halfW = widthMm / 2;
+  const halfW = effW / 2;
   const halfD = depthMm / 2;
-  const N = 48;
+  const N = 256;
   const bulgeMax = R - Math.sqrt(R * R - halfW * halfW);
 
   const xs = new Float32Array(N + 1);
   const zTops = new Float32Array(N + 1);
   for (let i = 0; i <= N; i++) {
-    const x = -halfW + (i / N) * widthMm;
+    const x = -halfW + (i / N) * effW;
     xs[i] = x;
     zTops[i] = baseThicknessMm + bulgeMax - (R - Math.sqrt(R * R - x * x));
   }
@@ -181,15 +207,25 @@ function buildRockerBaseGeometry(opts) {
 // Bend the relief vertically so it follows the rocker top. Each vertex is
 // shifted in +Z by the bulge offset at its X coordinate, so the relief height
 // stays uniform and the bottom of every line sits flush on the curve.
-function applyRollingCurveToPattern(geometry, opts) {
-  const { rollingEnabled, rollingRadiusMm, widthMm } = opts;
-  const halfW = widthMm / 2;
-  if (!rollingEnabled || !rollingRadiusMm || rollingRadiusMm < halfW) return;
+//
+// When flat-roll compensation is enabled, each vertex's X is first remapped
+// from design-X to chord-X via  x → R·sin(x/R). The relief footprint shrinks
+// to the chord width (matching the rocker), but the *arc length* still equals
+// the design width — so rolling the stamp across flat clay imprints at true
+// design size, no stretch.
+function applyRollingCurveToPattern(geometry, opts, effW) {
+  const { rollingEnabled, rollingRadiusMm, widthMm, rollingFlatCompensate } = opts;
+  if (!rollingEnabled || !rollingRadiusMm || rollingRadiusMm < widthMm / 2) return;
   const R = rollingRadiusMm;
+  const halfW = effW / 2;
   const bulgeMax = R - Math.sqrt(R * R - halfW * halfW);
   const pos = geometry.getAttribute('position');
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
+    let x = pos.getX(i);
+    if (rollingFlatCompensate) {
+      x = R * Math.sin(x / R);
+      pos.setX(i, x);
+    }
     const cx = Math.max(-halfW, Math.min(halfW, x));
     const offset = bulgeMax - (R - Math.sqrt(R * R - cx * cx));
     pos.setZ(i, pos.getZ(i) + offset);
@@ -218,7 +254,7 @@ function buildHandleGeometry(opts) {
   // Cone: wide end at z = +overlap/2 (inside the base), narrow end at
   // z = -handleHeightMm - overlap/2.
   const coneH = handleHeightMm + overlap;
-  const cone = new THREE.CylinderGeometry(handleRadiusMm, baseRadius, coneH, 64, 1);
+  const cone = new THREE.CylinderGeometry(handleRadiusMm, baseRadius, coneH, 128, 1);
   cone.rotateX(-Math.PI / 2);
   cone.translate(0, 0, overlap / 2 - coneH / 2);
   pieces.push(cone);
@@ -227,7 +263,7 @@ function buildHandleGeometry(opts) {
   // z = -handleHeightMm - handleGripHeightMm.
   if (handleGripHeightMm > 0) {
     const gripH = handleGripHeightMm + overlap;
-    const grip = new THREE.CylinderGeometry(handleRadiusMm, handleRadiusMm, gripH, 64, 1);
+    const grip = new THREE.CylinderGeometry(handleRadiusMm, handleRadiusMm, gripH, 128, 1);
     grip.rotateX(-Math.PI / 2);
     grip.translate(0, 0, -handleHeightMm - handleGripHeightMm / 2);
     pieces.push(grip);

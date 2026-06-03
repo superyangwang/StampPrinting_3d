@@ -46,6 +46,8 @@ function downscale(imageData, maxSide) {
  * @param {number} opts.widthMm
  * @param {number} opts.depthMm
  * @param {boolean} opts.invert
+ * @param {boolean} [opts.mirror=false]    - flip the mask left-right (so the
+ *                                            imprint reads the same as the source)
  * @param {number} [opts.threshold=0.2]    - 0..1; lower = more pixels qualify as "black"
  * @param {number} [opts.contrast=1.8]     - 1 = no change; >1 = push grays toward 0/1
  * @param {number} [opts.lineThickenPx=0]  - morphological dilation passes on the binary
@@ -60,6 +62,7 @@ export function buildMasks(imageData, opts) {
   const {
     shape,
     invert,
+    mirror = false,
     threshold = 0.3,
     contrast = 1.8,
     lineThickenPx = 0,
@@ -137,6 +140,19 @@ export function buildMasks(imageData, opts) {
     for (let y = 0; y < H; y++) {
       mask[y * W] = 0;
       mask[y * W + W - 1] = 0;
+    }
+  }
+
+  if (mirror) {
+    for (let y = 0; y < H; y++) {
+      const row = y * W;
+      for (let x = 0, end = W >> 1; x < end; x++) {
+        const a = row + x;
+        const b = row + (W - 1 - x);
+        const tmp = mask[a];
+        mask[a] = mask[b];
+        mask[b] = tmp;
+      }
     }
   }
 

@@ -123,6 +123,18 @@ export default function Controls({
           />
           Invert (light = raised)
         </label>
+        <label className="check" style={{ marginTop: 6 }}>
+          <input
+            type="checkbox"
+            checked={params.mirror}
+            onChange={(e) => update({ mirror: e.target.checked })}
+          />
+          Mirror (flip horizontally)
+        </label>
+        <p className="hint">
+          Stamps print a mirror image into clay. Enable this if you want
+          the imprint to read the same direction as your source.
+        </p>
       </section>
 
       <section>

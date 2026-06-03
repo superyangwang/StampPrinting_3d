@@ -27,6 +27,9 @@ const DEFAULTS = {
   rollingFlatCompensate: false, // shrink chord so flat-rolled imprint = design width
 
   invert: false,
+  mirror: false,           // flip the design left-right so the stamped
+                           // imprint reads the same direction as the source
+
   threshold: 0.3,          // 0..1; lower = more pixels qualify as "black"
   contrast: 1.8,           // 1 = none; >1 pushes grays toward 0/1
   lineThickenPx: 1.5,      // 0..4 mask-pixel dilation radius; fattens raised lines

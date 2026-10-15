@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Controls from './components/Controls.jsx';
 import StampViewer from './components/StampViewer.jsx';
+import EmailGateModal from './components/EmailGateModal.jsx';
+import { recordDownload } from './tracking.js';
 import { buildMasks } from './stamp/heightmap.js';
 import { buildStampGeometry } from './stamp/mesh.js';
 import { geometryToBinarySTL } from './stamp/stl.js';
@@ -164,7 +166,27 @@ export default function App() {
     }
   };
 
+  // Downloads are gated behind an email prompt; the last-used email is
+  // remembered so repeat downloads only need one click.
+  const [showEmailGate, setShowEmailGate] = useState(false);
+
   const handleDownload = () => {
+    if (!stlBuffer) return;
+    setShowEmailGate(true);
+  };
+
+  const handleEmailConfirm = (email) => {
+    setShowEmailGate(false);
+    try {
+      localStorage.setItem('stampDownloadEmail', email);
+    } catch {
+      // Private browsing may block storage; the download still proceeds.
+    }
+    recordDownload(email, (fileName || 'stamp') + '.stl');
+    performDownload();
+  };
+
+  const performDownload = () => {
     if (!stlBuffer) return;
     const blob = new Blob([stlBuffer], { type: 'model/stl' });
     const url = URL.createObjectURL(blob);
@@ -201,6 +223,19 @@ export default function App() {
             : 'Upload an image to see your stamp here.'
         }
       />
+      {showEmailGate && (
+        <EmailGateModal
+          defaultEmail={(() => {
+            try {
+              return localStorage.getItem('stampDownloadEmail') || '';
+            } catch {
+              return '';
+            }
+          })()}
+          onCancel={() => setShowEmailGate(false)}
+          onConfirm={handleEmailConfirm}
+        />
+      )}
     </div>
   );
 }

@@ -64,7 +64,7 @@ function coerce(prev, value) {
 
 // Pre-downscale to fit maxSide so src/stamp/heightmap.js's canvas-based
 // downscale() short-circuits (no DOM in Node).
-function decodePngDownscaled(buf, maxSide = 384) {
+function decodePngDownscaled(buf, maxSide = 768) {
   const png = PNG.sync.read(buf);
   const { width: w0, height: h0, data: src } = png;
   const longest = Math.max(w0, h0);
@@ -111,7 +111,7 @@ async function main() {
   );
 
   console.log(`Loading ${inputPath}`);
-  const png = decodePngDownscaled(readFileSync(inputPath), 384);
+  const png = decodePngDownscaled(readFileSync(inputPath), 768);
   console.log(`  decoded ${png.width}x${png.height}`);
 
   console.log('Building mask...');

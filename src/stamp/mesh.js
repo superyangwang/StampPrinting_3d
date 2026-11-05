@@ -22,6 +22,10 @@ import { traceShapes } from './tracer.js';
 // well below typical 3D-printer layer heights so faceting won't be visible.
 const ROLLING_TESSELLATE_EDGE_MM = 0.5;
 
+// Outline smoothing radius, in mask pixels at 768 px, per "Wall smoothing"
+// step.
+const WALL_SMOOTH_PX = 0.8;
+
 export function buildStampGeometry(masks, opts) {
   const geoms = [];
   const effW = effectiveWidthMm(opts);
@@ -60,7 +64,6 @@ export function buildStampGeometry(masks, opts) {
 }
 
 function buildPatternGeometry(masks, opts) {
-  const { mask, W, H } = masks;
   const {
     widthMm,
     depthMm,
@@ -72,7 +75,7 @@ function buildPatternGeometry(masks, opts) {
   } = opts;
 
   const scale = imageScalePct / 100;
-  const shapes = maskToShapes(mask, W, H, widthMm * scale, depthMm * scale, smoothIterations);
+  const shapes = maskToShapes(masks, widthMm * scale, depthMm * scale, smoothIterations);
   if (shapes.length === 0) return null;
 
   const geo = new THREE.ExtrudeGeometry(shapes, {
@@ -139,8 +142,18 @@ function applyDraftAngle(geometry, draftAngleDeg, reliefDepth) {
   pos.needsUpdate = true;
 }
 
-function maskToShapes(mask, W, H, widthMm, depthMm, smoothIterations = 0) {
-  const traced = traceShapes(mask, W, H, { simplifyTol: 1, smoothIterations });
+function maskToShapes(masks, widthMm, depthMm, smoothIterations = 0) {
+  const { mask, field, W, H } = masks;
+  // Tracer tolerances are in mask pixels; scale them with the mask so the
+  // result doesn't depend on working resolution. At 768 px across a 40 mm
+  // stamp one pixel is ~0.05 mm, so level 1 only irons out pixel noise and
+  // the simplification error is far below anything a printer can resolve.
+  const px = Math.max(W, H) / 768;
+  const traced = traceShapes(mask, W, H, {
+    field,
+    simplifyTol: 0.05 * px,
+    smoothSigma: Math.max(0, Math.min(3, smoothIterations)) * WALL_SMOOTH_PX * px,
+  });
   const shapes = [];
   for (const { outer, holes } of traced) {
     const shape = new THREE.Shape();

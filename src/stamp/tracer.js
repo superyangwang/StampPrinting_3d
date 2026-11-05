@@ -4,8 +4,8 @@
 // nesting classified so they can be turned into THREE.Shape + holes.
 //
 // Endpoint coordinates are stored as integers (doubled half-pixel coords)
-// to make endpoint matching exact — no float compare. The caller divides
-// by 2 to recover the original (i + 0.5, j + 0.5) crossings.
+// to make endpoint matching exact — no float compare. Each one names a grid
+// edge; crossing() then finds where on that edge the outline really sits.
 
 // Per-case segment list. Each segment is [startEdge, endEdge] where edges
 // are 0=top, 1=right, 2=bottom, 3=left. Winding: traverse so the "inside"
@@ -121,6 +121,26 @@ export function marchingSquares(mask, W, H) {
   return loops;
 }
 
+// Where the outline really crosses a grid edge. marchingSquares reports the
+// edge's midpoint (doubled coords); the field says how far along the edge the
+// zero level actually sits, which is what removes the pixel staircase.
+function crossing(p, field, W) {
+  if (p[0] & 1) {
+    // Horizontal edge between pixels (i, j) and (i + 1, j).
+    const i = (p[0] - 1) / 2;
+    const j = p[1] / 2;
+    const a = field[j * W + i];
+    const b = field[j * W + i + 1];
+    return [i + a / (a - b), j];
+  }
+  // Vertical edge between pixels (i, j) and (i, j + 1).
+  const i = p[0] / 2;
+  const j = (p[1] - 1) / 2;
+  const a = field[j * W + i];
+  const b = field[(j + 1) * W + i];
+  return [i, j + a / (a - b)];
+}
+
 // Signed area (image coords, y-down). Positive = CCW in y-down = CW in y-up.
 function signedArea(loop) {
   let s = 0;
@@ -148,8 +168,8 @@ function pointInLoop(p, loop) {
 }
 
 /**
- * Douglas-Peucker simplification (in doubled pixel coords). tol is in doubled
- * units; tol = 2 means "drop a vertex if it's within 1 pixel of the chord".
+ * Douglas-Peucker simplification. tol is in the loop's own units: a vertex is
+ * dropped if it's within tol of the chord between its kept neighbors.
  */
 function simplify(loop, tol) {
   if (loop.length < 4) return loop.slice();
@@ -184,43 +204,88 @@ function simplify(loop, tol) {
   return out;
 }
 
-// Chaikin's corner-cutting: one pass replaces each edge AB with two points
-// at 1/4 and 3/4 along it, producing a smoother polygon that approximates a
-// quadratic B-spline. Each iteration doubles the vertex count and rounds the
-// corners further. Operates on closed loops in any units.
-function chaikinSmooth(loop, iterations) {
-  let pts = loop;
-  for (let it = 0; it < iterations; it++) {
-    const n = pts.length;
-    if (n < 4) break;
-    const out = new Array(n * 2);
-    for (let i = 0; i < n; i++) {
-      const a = pts[i];
-      const b = pts[(i + 1) % n];
-      out[i * 2] = [0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1]];
-      out[i * 2 + 1] = [0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1]];
-    }
-    pts = out;
+// Spacing, in pixels, of the evenly resampled outline used for smoothing.
+const SMOOTH_STEP = 0.5;
+// Loops smaller than this (px²) are specks of image noise, not pattern.
+const MIN_LOOP_AREA = 1;
+
+// Gaussian smoothing along a closed loop: resample it at even spacing, then
+// replace each point by a weighted average of its neighbors within ~3 sigma.
+// Unlike corner-cutting, the amount removed from a corner depends only on
+// sigma (in pixels), never on how long the adjoining edges are — so straight
+// strokes stay straight and letter corners stay crisp.
+function smoothLoop(loop, sigma) {
+  const n = loop.length;
+  const seg = new Float64Array(n);
+  let perimeter = 0;
+  for (let i = 0; i < n; i++) {
+    const a = loop[i];
+    const b = loop[(i + 1) % n];
+    seg[i] = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    perimeter += seg[i];
   }
-  return pts;
+  const m = Math.round(perimeter / SMOOTH_STEP);
+  if (m < 8) return loop;
+  const step = perimeter / m;
+  // Cap sigma on small loops (dots, tiny counters) so they don't shrink away.
+  const s = Math.min(sigma, perimeter / 20) / step;
+
+  const rx = new Float64Array(m);
+  const ry = new Float64Array(m);
+  let k = 0;
+  let walked = 0; // arc length at the start of segment k
+  for (let j = 0; j < m; j++) {
+    const target = j * step;
+    while (k < n - 1 && walked + seg[k] < target) walked += seg[k++];
+    const t = seg[k] > 0 ? (target - walked) / seg[k] : 0;
+    const a = loop[k];
+    const b = loop[(k + 1) % n];
+    rx[j] = a[0] + t * (b[0] - a[0]);
+    ry[j] = a[1] + t * (b[1] - a[1]);
+  }
+
+  const radius = Math.ceil(3 * s);
+  const weights = new Float64Array(2 * radius + 1);
+  let total = 0;
+  for (let d = -radius; d <= radius; d++) {
+    weights[d + radius] = Math.exp(-(d * d) / (2 * s * s));
+    total += weights[d + radius];
+  }
+  const out = new Array(m);
+  for (let j = 0; j < m; j++) {
+    let x = 0;
+    let y = 0;
+    for (let d = -radius; d <= radius; d++) {
+      const q = (j + d + m) % m;
+      x += weights[d + radius] * rx[q];
+      y += weights[d + radius] * ry[q];
+    }
+    out[j] = [x / total, y / total];
+  }
+  return out;
 }
 
 /**
- * Trace contours from a binary mask and build a hierarchy of shapes with holes.
+ * Trace contours from a pattern mask and build a hierarchy of shapes with holes.
  *
  * @param {Uint8Array} mask
  * @param {number} W
  * @param {number} H
  * @param {object} [opts]
- * @param {number} [opts.simplifyTol=1]    - tolerance in pixels for Douglas-Peucker
- * @param {number} [opts.smoothIterations=0] - Chaikin smoothing passes (0..3)
+ * @param {Float32Array} [opts.field]      - signed field the mask came from
+ *                                            (> 0 inside). Places the outline
+ *                                            between pixels; without it edges
+ *                                            fall on half-pixel steps.
+ * @param {number} [opts.simplifyTol=0.05]  - tolerance in pixels for Douglas-Peucker
+ * @param {number} [opts.smoothSigma=0]    - outline smoothing radius in pixels
  * @returns {Array<{ outer: Array<[number, number]>, holes: Array<Array<[number, number]>> }>}
- *          Loops are in PIXEL coords (already de-doubled). Outer is CCW
- *          (y-down); holes are CW (y-down).
+ *          Loops are in PIXEL coords. Outer is CCW (y-down); holes are CW
+ *          (y-down).
  */
 export function traceShapes(mask, W, H, opts = {}) {
-  const simplifyTol = opts.simplifyTol ?? 1;
-  const smoothIterations = Math.max(0, Math.min(3, opts.smoothIterations ?? 0));
+  const { field } = opts;
+  const simplifyTol = opts.simplifyTol ?? 0.05;
+  const smoothSigma = opts.smoothSigma ?? 0;
   const rawLoops = marchingSquares(mask, W, H);
 
   // Keep only closed loops with non-trivial area.
@@ -231,11 +296,15 @@ export function traceShapes(mask, W, H, opts = {}) {
       // Open loop (edge case) — drop it.
       continue;
     }
-    // Strip the duplicate closing vertex.
-    const trimmed = l.slice(0, -1);
-    if (trimmed.length < 3) continue;
-    const simp = simplify(trimmed, simplifyTol * 2); // tol is in doubled units
+    // Strip the duplicate closing vertex and move to real pixel coords.
+    let pts = l
+      .slice(0, -1)
+      .map((p) => (field ? crossing(p, field, W) : [p[0] / 2, p[1] / 2]));
+    if (pts.length < 3) continue;
+    if (smoothSigma > 0) pts = smoothLoop(pts, smoothSigma);
+    const simp = simplify(pts, simplifyTol);
     if (simp.length < 3) continue;
+    if (Math.abs(signedArea(simp)) < MIN_LOOP_AREA) continue;
     loops.push(simp);
   }
 
@@ -262,36 +331,18 @@ export function traceShapes(mask, W, H, opts = {}) {
   }
 
   // Group: depth 0 = outer shape, depth 1 = hole, depth 2 = inner shape, etc.
-  // Classification uses the original (pre-smooth) loops so nesting checks are
-  // exact; smoothing is applied last so it only affects the emitted geometry.
   const shapes = [];
   for (const r of records) {
     if (r.depth % 2 === 0) {
-      shapes.push({ outer: undoubled(r.loop), holes: [], _raw: r.loop });
+      shapes.push({ outer: r.loop, holes: [] });
     } else {
       for (let s = shapes.length - 1; s >= 0; s--) {
-        if (pointInLoop(r.loop[0], shapes[s]._raw)) {
-          shapes[s].holes.push(undoubled(r.loop));
+        if (pointInLoop(r.loop[0], shapes[s].outer)) {
+          shapes[s].holes.push(r.loop);
           break;
         }
       }
     }
   }
-  for (const s of shapes) delete s._raw;
-
-  if (smoothIterations > 0) {
-    for (const s of shapes) {
-      s.outer = chaikinSmooth(s.outer, smoothIterations);
-      s.holes = s.holes.map((h) => chaikinSmooth(h, smoothIterations));
-    }
-  }
   return shapes;
-}
-
-function undoubled(loop) {
-  return loop.map(([x, y]) => [x / 2, y / 2]);
-}
-
-function doubled(loop) {
-  return loop.map(([x, y]) => [x * 2, y * 2]);
 }

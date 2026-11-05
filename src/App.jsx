@@ -36,7 +36,7 @@ const DEFAULTS = {
   threshold: 0.3,          // 0..1; lower = more pixels qualify as "black"
   contrast: 1.8,           // 1 = none; >1 pushes grays toward 0/1
   lineThickenPx: 1.5,      // 0..4 mask-pixel dilation radius; fattens raised lines
-  smoothIterations: 1,     // 0..3 Chaikin passes on traced contours
+  smoothIterations: 1,     // 0..3 outline smoothing strength on traced contours
   imageScalePct: 90,       // 50..100; shrinks the pattern inside the stamp footprint
   handleEnabled: true,
   handleHeightMm: DEFAULT_HANDLE_HEIGHT_MM,
@@ -50,14 +50,20 @@ async function fileToImageData(file) {
     const img = new Image();
     img.src = url;
     await img.decode();
+    // Always work at the same size: big images shrink, and small ones are
+    // scaled up smoothly (an SVG re-renders sharp) so a low-res logo isn't
+    // traced as blocky pixels.
     const maxIn = 1024;
-    const scale = Math.min(1, maxIn / Math.max(img.naturalWidth, img.naturalHeight));
+    const longest = Math.max(img.naturalWidth, img.naturalHeight) || maxIn;
+    const scale = maxIn / longest;
     const w = Math.max(2, Math.round(img.naturalWidth * scale));
     const h = Math.max(2, Math.round(img.naturalHeight * scale));
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, 0, 0, w, h);
     const data = ctx.getImageData(0, 0, w, h);
     // Color or shaded images are silently reduced to black/white here.

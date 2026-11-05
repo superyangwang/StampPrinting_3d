@@ -19,7 +19,10 @@ one row per email with the download count and first/last download times.
    - Description: anything (e.g. "download tracker").
    - Execute as: **Me**.
    - Who has access: **Anyone**. (Required so the website can post to it.
-     The URL is unguessable, and the script only ever appends to the sheet.)
+     Note the URL is **not secret**: it ships in the site's public
+     JavaScript and in this repo, so anyone can post to it. The script
+     only accepts well-formed emails, strips formula characters, and caps
+     the sheet size, but expect the occasional junk row.)
    - Click **Deploy**, then **Authorize access** and approve with your
      Google account. If you see "Google hasn't verified this app", click
      **Advanced → Go to ... (unsafe)** — it's your own script.
@@ -54,3 +57,6 @@ the change. A brand-new deployment would generate a different URL.
   recorded.
 - Requests are sent fire-and-forget (`no-cors`), so a tracking outage never
   blocks anyone's download.
+- Keep the spreadsheet private (don't share it by link): it holds other
+  people's email addresses. Never commit the spreadsheet URL or an export of
+  it to this repo.

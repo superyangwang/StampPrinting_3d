@@ -3,6 +3,7 @@ import Controls from './components/Controls.jsx';
 import StampViewer from './components/StampViewer.jsx';
 import EmailGateModal from './components/EmailGateModal.jsx';
 import { recordDownload } from './tracking.js';
+import { ensureBlackAndWhite } from './stamp/blackwhite.js';
 import { buildMasks } from './stamp/heightmap.js';
 import { buildStampGeometry } from './stamp/mesh.js';
 import { geometryToBinarySTL } from './stamp/stl.js';
@@ -58,7 +59,10 @@ async function fileToImageData(file) {
     canvas.height = h;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0, w, h);
-    return ctx.getImageData(0, 0, w, h);
+    const data = ctx.getImageData(0, 0, w, h);
+    // Color or shaded images are silently reduced to black/white here.
+    ensureBlackAndWhite(data);
+    return data;
   } finally {
     URL.revokeObjectURL(url);
   }

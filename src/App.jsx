@@ -37,7 +37,8 @@ const DEFAULTS = {
   contrast: 1.8,           // 1 = none; >1 pushes grays toward 0/1
   lineThickenPx: 1.5,      // 0..4 mask-pixel dilation radius; fattens raised lines
   smoothIterations: 1,     // 0..3 outline smoothing strength on traced contours
-  imageScalePct: 90,       // 50..100; shrinks the pattern inside the stamp footprint
+  imageScalePct: 90,       // 50..200; scales the pattern inside the stamp footprint;
+                           // above 100 the parts outside the stamp are cut off
   handleEnabled: true,
   handleHeightMm: DEFAULT_HANDLE_HEIGHT_MM,
   handleGripHeightMm: 10,

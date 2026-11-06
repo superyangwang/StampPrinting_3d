@@ -190,8 +190,9 @@ function signedDistanceField(gray, W, H, threshold) {
  * @param {number} [opts.lineThickenPx=0]  - fattens every raised line by this many
  *                                            pixels in all directions, measured at
  *                                            REFERENCE_RESOLUTION. Fractions are fine.
- * @param {number} [opts.imageScalePct=100] - shrinks the design inside the stamp;
- *                                            relaxes the round clip ellipse to match.
+ * @param {number} [opts.imageScalePct=100] - scales the design inside the stamp;
+ *                                            above 100 the overflow is clipped
+ *                                            at the stamp wall.
  * @param {number} [opts.maxResolution=768]
  * @returns {{ W: number, H: number, mask: Uint8Array, field: Float32Array }}
  *          field > 0 inside the pattern, in pixels from its outline; mask is
@@ -236,19 +237,30 @@ export function buildMasks(imageData, opts) {
   // Two limits on where the pattern may be, both applied as a smooth cap on
   // the field so the cut edge is as clean as the rest of the outline:
   //  - a 1-pixel empty border so every contour closes;
-  //  - round shape only: the inscribed ellipse, so the pattern can't extend
-  //    past the disk wall. The mesh stage scales pixel coords to mm by
-  //    (widthMm * imageScalePct/100), so the cylinder wall in normalized
-  //    pixel coords sits at radius 1 / (imageScalePct/100).
+  //  - the stamp footprint, so the pattern can't extend past the wall when
+  //    the image is scaled past 100%: the inscribed ellipse for a round
+  //    stamp, the rectangle itself otherwise. The mesh stage scales pixel
+  //    coords to mm by (widthMm * imageScalePct/100), so the wall in
+  //    normalized pixel coords sits at 1 / (imageScalePct/100). The cut is
+  //    kept a pixel inside the wall: outline smoothing later bows concave
+  //    corners outward a little, and the raised pattern must not overhang
+  //    the base.
   const clipR = 100 / imageScalePct;
   const pxPerUnit = (Math.min(W, H) - 1) / 2;
+  const wallMargin = 1;
   for (let j = 0; j < H; j++) {
     const ny = (j / (H - 1)) * 2 - 1;
     for (let i = 0; i < W; i++) {
       let limit = Math.min(i, j, W - 1 - i, H - 1 - j) - 0.5;
+      const nx = (i / (W - 1)) * 2 - 1;
       if (shape === 'round') {
-        const nx = (i / (W - 1)) * 2 - 1;
-        limit = Math.min(limit, (clipR - Math.hypot(nx, ny)) * pxPerUnit);
+        limit = Math.min(limit, (clipR - Math.hypot(nx, ny)) * pxPerUnit - wallMargin);
+      } else {
+        limit = Math.min(
+          limit,
+          ((clipR - Math.abs(nx)) * (W - 1)) / 2 - wallMargin,
+          ((clipR - Math.abs(ny)) * (H - 1)) / 2 - wallMargin,
+        );
       }
       if (limit < field[j * W + i]) field[j * W + i] = limit;
     }

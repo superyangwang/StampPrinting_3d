@@ -144,7 +144,7 @@ export default function Controls({
           <input
             type="range"
             min={50}
-            max={100}
+            max={200}
             step={1}
             value={params.imageScalePct}
             onChange={(e) => update({ imageScalePct: Number(e.target.value) })}
